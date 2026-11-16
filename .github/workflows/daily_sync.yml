@@ -2,12 +2,15 @@ name: Daily NCAA Italians & Tankathon Sync
 
 on:
   schedule:
-    # 07:00 UTC corrisponde alle 08:00 ora solare italiana (CET)
+    # Ogni giorno alle 08:00 ora italiana (07:00 UTC)
     - cron: '0 7 * * *'
-  workflow_dispatch: # Permette di lanciarlo anche a mano con un click
+  issues:
+    types: [opened]
+  workflow_dispatch:
 
 permissions:
   contents: write
+  issues: read
 
 jobs:
   sync-data:
@@ -24,12 +27,14 @@ jobs:
       - name: Install Dependencies
         run: pip install cloudscraper beautifulsoup4 lxml
 
-      - name: Run Scraper & Compute Percentiles
+      - name: Run Scraper & Sync Shared Notes
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: python scraper.py
 
-      - name: Commit and Push Updated JSON
+      - name: Commit and Push Updated Files
         run: |
           git config --local user.email "actions@github.com"
           git config --local user.name "NCAA Daily Bot"
-          git add players_data.json
-          git diff --staged --quiet || (git commit -m "Auto-update stats & big board" && git push)
+          git add players_data.json community_notes.json
+          git diff --staged --quiet || (git commit -m "Auto-update stats, big board & community notes" && git push)
