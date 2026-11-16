@@ -2,7 +2,6 @@ name: Daily NCAA Italians & Tankathon Sync
 
 on:
   schedule:
-    # Ogni giorno alle 08:00 ora italiana (07:00 UTC)
     - cron: '0 7 * * *'
   issues:
     types: [opened]
@@ -11,6 +10,10 @@ on:
 permissions:
   contents: write
   issues: read
+
+concurrency:
+  group: daily-sync-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   sync-data:
@@ -39,6 +42,6 @@ jobs:
           git add players_data.json community_notes.json
           if ! git diff --staged --quiet; then
             git commit -m "Auto-update stats, big board & community notes"
-            git pull --rebase origin main
-            git push
+            git pull --rebase origin "${GITHUB_REF_NAME:-main}"
+            git push origin HEAD:"${GITHUB_REF_NAME:-main}"
           fi
