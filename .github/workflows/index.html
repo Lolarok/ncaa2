@@ -13,7 +13,7 @@
 </head>
 <body class="min-h-screen pb-16">
 
-  <!-- Top Navbar -->
+  <!-- Navbar -->
   <header class="border-b border-slate-800 bg-[#0f1523]/90 backdrop-blur sticky top-0 z-30">
     <div class="max-w-7xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-4">
       <a href="#leaderboard" class="flex items-center gap-3 group">
@@ -23,7 +23,7 @@
           <p class="text-xs text-slate-400 mt-1">Fonti: RealGM Italy & Tankathon Big Board</p>
         </div>
       </a>
-      <div class="flex items-center gap-4 text-xs">
+      <div class="flex items-center gap-3 text-xs">
         <span id="last-update" class="px-3 py-1.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">Sync: caricamento...</span>
       </div>
     </div>
@@ -33,7 +33,6 @@
 
     <!-- VISTA 1: LEADERBOARD -->
     <section id="view-leaderboard" class="space-y-6">
-      <!-- Barra Filtri -->
       <div class="card p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         <div>
           <label class="text-xs text-slate-400 block mb-1">Cerca Giocatore / College</label>
@@ -74,7 +73,6 @@
         </div>
       </div>
 
-      <!-- Tabella Leaderboard -->
       <div class="card overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-left border-collapse text-sm">
@@ -102,7 +100,7 @@
 
     <!-- VISTA 2: PAGINA DEDICATA GIOCATORE -->
     <section id="view-player" class="hidden space-y-6">
-      <div class="flex items-center justify-between">
+      <div class="flex flex-wrap items-center justify-between gap-3">
         <a href="#leaderboard" class="inline-flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 font-medium">
           ← Torna alla Leaderboard
         </a>
@@ -116,13 +114,9 @@
         </div>
       </div>
 
-      <!-- Intestazione Giocatore -->
       <div id="player-header" class="card p-6"></div>
 
-      <!-- Griglia Centrale: Percentili Avanzati + Mappa/Selezione di Tiro -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        <!-- Colonna 1: Statistiche Avanzate e Percentili -->
         <div class="card p-6 space-y-5">
           <div>
             <h3 class="text-base font-bold text-white">Statistiche Avanzate & Percentili</h3>
@@ -131,7 +125,6 @@
           <div id="player-percentiles" class="space-y-4"></div>
         </div>
 
-        <!-- Colonna 2: Mappa di Tiro & Shot Selection -->
         <div class="card p-6 space-y-5">
           <div>
             <h3 class="text-base font-bold text-white">Mappa & Selezione di Tiro</h3>
@@ -139,30 +132,25 @@
           </div>
           <div id="player-shot-chart"></div>
         </div>
-
       </div>
 
-      <!-- Sezione Utenti: Note di Scouting & Video Highlights -->
+      <!-- Spazio Utenti: Note & Video -->
       <div class="card p-6 space-y-5">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 class="text-base font-bold text-white">Spazio Scouting: Note, Report & Video Utenti</h3>
             <p class="text-xs text-slate-400">Aggiungi osservazioni tecniche o link YouTube/X per questo giocatore</p>
           </div>
-          <div class="flex gap-2">
-            <button onclick="exportNotes()" class="text-xs px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">Esporta Note JSON</button>
-          </div>
+          <button onclick="exportNotes()" class="text-xs px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700">Esporta Note JSON</button>
         </div>
 
-        <!-- Form Inserimento -->
         <form id="note-form" class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-900/70 p-4 rounded-lg border border-slate-800">
           <input id="note-author" type="text" placeholder="Il tuo nome / nick" required class="bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-white">
           <input id="note-video" type="url" placeholder="Link Video YouTube (opzionale)" class="bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-2">
           <button type="submit" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded px-4 py-2 text-sm transition">Salva Nota / Video</button>
-          <textarea id="note-text" rows="2" placeholder="Scrivi qui la nota di scouting (es. meccanica di tiro, difesa sul pick and roll, letture...)" required class="bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-4"></textarea>
+          <textarea id="note-text" rows="2" placeholder="Scrivi qui la nota di scouting (meccanica di tiro, difesa, letture...)" required class="bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-4"></textarea>
         </form>
 
-        <!-- Lista Note e Player Video -->
         <div id="player-notes-list" class="space-y-4"></div>
       </div>
     </section>
@@ -170,12 +158,22 @@
   </main>
 
   <script>
+    function detectGithubRepo() {
+      const host = window.location.hostname;
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      if (host.endsWith('.github.io') && parts.length > 0) {
+        return `${host.replace('.github.io', '')}/${parts[0]}`;
+      }
+      return "Lolarok/ncaa-italiani";
+    }
+
+    const GITHUB_REPO = detectGithubRepo();
     let ALL_PLAYERS = [];
+    let SHARED_NOTES = {};
     let CURRENT_PLAYER_ID = null;
 
-    // Fallback immediato per anteprima locale se players_data.json non è ancora stato generato
     const FALLBACK_DATA = {
-      updated_at: "Live Seed 2026-27",
+      updated_at: "Seed Iniziale 2026-27",
       players: [
         { id: "dame-sarr", name: "Dame Sarr", team: "Duke", pos: "SG/SF", height: "6-7", class_year: "Fr.", is_ita: true, is_nba_prospect: true, rank_nba: 40, gp: 2, mpg: 24.5, pts: 12.5, reb: 4.0, ast: 2.5, advanced: { ts_pct: 59.8, efg_pct: 57.9, usg_pct: 21.8, ast_to: 1.67, tov_pct: 12.6, ftr: 21.1 }, shot_selection: { rim_freq: 25.6, mid_freq: 21.8, three_par: 52.6, rim_fg: 63.9, mid_fg: 43.3, two_p_pct: 55.6, three_p_pct: 40.0, ft_pct: 75.0, two_pa: 4.5, tpa: 5.0, fta: 2.0 } },
         { id: "luigi-suigo", name: "Luigi Suigo", team: "Villanova", pos: "C", height: "7-2", class_year: "Fr.", is_ita: true, is_nba_prospect: true, rank_nba: 18, gp: 2, mpg: 22.0, pts: 11.0, reb: 7.5, ast: 1.0, advanced: { ts_pct: 64.0, efg_pct: 63.3, usg_pct: 20.1, ast_to: 0.67, tov_pct: 14.8, ftr: 33.3 }, shot_selection: { rim_freq: 54.4, mid_freq: 25.6, three_par: 20.0, rim_fg: 73.1, mid_fg: 49.6, two_p_pct: 66.7, three_p_pct: 33.3, ft_pct: 60.0, two_pa: 6.0, tpa: 1.5, fta: 2.5 } },
@@ -186,17 +184,54 @@
       ]
     };
 
+    async function loadSharedNotes() {
+      try {
+        const res = await fetch('community_notes.json?t=' + Date.now());
+        if (res.ok) SHARED_NOTES = await res.json();
+      } catch (e) {}
+
+      try {
+        const resIssues = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/issues?state=open&per_page=30`);
+        if (resIssues.ok) {
+          const issues = await resIssues.json();
+          issues.forEach(issue => {
+            if (!issue.title || !issue.title.startsWith('[SCOUTING]')) return;
+            const body = issue.body || '';
+            const pidMatch = body.match(/PLAYER_ID:\s*([a-z0-9-]+)/);
+            const authorMatch = body.match(/AUTHOR:\s*(.+)/);
+            const videoMatch = body.match(/VIDEO:\s*(.*)/);
+            const textMatch = body.match(/NOTE:\s*([\s\S]+)/);
+            if (pidMatch && textMatch) {
+              const pid = pidMatch[1].trim();
+              const noteId = `gh-issue-${issue.number}`;
+              if (!SHARED_NOTES[pid]) SHARED_NOTES[pid] = [];
+              if (!SHARED_NOTES[pid].some(n => n.id === noteId)) {
+                SHARED_NOTES[pid].unshift({
+                  id: noteId,
+                  author: authorMatch ? authorMatch[1].trim() : issue.user.login,
+                  date: issue.created_at.slice(0, 10),
+                  video: videoMatch ? videoMatch[1].trim() : '',
+                  text: textMatch[1].trim()
+                });
+              }
+            }
+          });
+        }
+      } catch (e) {}
+    }
+
     async function loadData() {
       try {
         const res = await fetch('players_data.json?t=' + Date.now());
-        if (!res.ok) throw new Error('File JSON non trovato');
+        if (!res.ok) throw new Error('JSON non ancora generato');
         const data = await res.json();
         ALL_PLAYERS = data.players;
         document.getElementById('last-update').textContent = `Aggiornato: ${data.updated_at}`;
       } catch (e) {
         ALL_PLAYERS = FALLBACK_DATA.players;
-        document.getElementById('last-update').textContent = `Modalità Preview (${FALLBACK_DATA.updated_at})`;
+        document.getElementById('last-update').textContent = `${FALLBACK_DATA.updated_at}`;
       }
+      await loadSharedNotes();
       handleRoute();
     }
 
@@ -214,10 +249,10 @@
     }
 
     function pctColor(pct) {
-      if (pct >= 80) return 'bg-emerald-500 text-emerald-400';
-      if (pct >= 50) return 'bg-blue-500 text-blue-400';
-      if (pct >= 25) return 'bg-amber-500 text-amber-400';
-      return 'bg-rose-500 text-rose-400';
+      if (pct >= 80) return 'bg-emerald-500';
+      if (pct >= 50) return 'bg-blue-500';
+      if (pct >= 25) return 'bg-amber-500';
+      return 'bg-rose-500';
     }
 
     function renderLeaderboard() {
@@ -243,8 +278,7 @@
         return b[sortBy] - a[sortBy];
       });
 
-      const tbody = document.getElementById('leaderboard-body');
-      tbody.innerHTML = list.map(p => `
+      document.getElementById('leaderboard-body').innerHTML = list.map(p => `
         <tr class="hover:bg-slate-800/50 transition cursor-pointer" onclick="location.hash='#player/${p.id}'">
           <td class="py-3.5 px-4 font-semibold text-white">
             ${p.name}
@@ -276,7 +310,6 @@
       CURRENT_PLAYER_ID = p.id;
       const peerGroup = document.getElementById('peer-group-select').value;
 
-      // 1. Header
       document.getElementById('player-header').innerHTML = `
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -297,7 +330,6 @@
         </div>
       `;
 
-      // 2. Percentili
       const metrics = [
         { label: 'True Shooting (TS%)', val: p.advanced.ts_pct + '%', getter: x => x.advanced.ts_pct },
         { label: 'Effective FG% (eFG%)', val: p.advanced.efg_pct + '%', getter: x => x.advanced.efg_pct },
@@ -310,7 +342,6 @@
 
       document.getElementById('player-percentiles').innerHTML = metrics.map(m => {
         const pct = computeDynamicPercentile(p, m.getter, peerGroup);
-        const colorClass = pctColor(pct).split(' ')[0];
         return `
           <div>
             <div class="flex justify-between text-xs mb-1">
@@ -318,17 +349,15 @@
               <span class="font-bold text-white">${m.val} <span class="ml-1.5 px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">${pct}° pct</span></span>
             </div>
             <div class="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
-              <div class="h-full ${colorClass} pct-bar" style="width: ${pct}%"></div>
+              <div class="h-full ${pctColor(pct)} pct-bar" style="width: ${pct}%"></div>
             </div>
           </div>
         `;
       }).join('');
 
-      // 3. Mappa di Tiro SVG & Shot Selection
       const s = p.shot_selection;
       document.getElementById('player-shot-chart').innerHTML = `
         <div class="space-y-4">
-          <!-- Barra Dieta di Tiro -->
           <div>
             <div class="flex justify-between text-xs text-slate-400 mb-1">
               <span>Ferro/Area: <strong class="text-blue-400">${s.rim_freq}%</strong></span>
@@ -336,30 +365,23 @@
               <span>3 Punti: <strong class="text-emerald-400">${s.three_par}%</strong></span>
             </div>
             <div class="w-full h-4 rounded-lg overflow-hidden flex">
-              <div style="width:${s.rim_freq}%" class="bg-blue-500" title="Rim"></div>
-              <div style="width:${s.mid_freq}%" class="bg-purple-500" title="Mid-Range"></div>
-              <div style="width:${s.three_par}%" class="bg-emerald-500" title="3 Punti"></div>
+              <div style="width:${s.rim_freq}%" class="bg-blue-500"></div>
+              <div style="width:${s.mid_freq}%" class="bg-purple-500"></div>
+              <div style="width:${s.three_par}%" class="bg-emerald-500"></div>
             </div>
           </div>
 
-          <!-- Mappa Metà Campo SVG -->
           <div class="bg-[#0b111e] border border-slate-800 rounded-xl p-4 flex flex-col items-center">
             <svg viewBox="0 0 300 240" class="w-full max-w-[340px]">
-              <!-- Linee Campo -->
               <rect x="10" y="10" width="280" height="220" fill="none" stroke="#334155" stroke-width="2"/>
-              <!-- Area / Pitturato -->
               <rect x="105" y="10" width="90" height="110" fill="#1e293b" fill-opacity="0.4" stroke="#475569" stroke-width="1.5"/>
-              <!-- Arco 3 Punti -->
               <path d="M 35 10 L 35 75 A 120 120 0 0 0 265 75 L 265 10" fill="none" stroke="#475569" stroke-width="2"/>
-              <!-- Zona 1: Rim -->
               <circle cx="150" cy="48" r="28" fill="rgba(59,130,246,0.28)" stroke="#3b82f6" stroke-width="2"/>
               <text x="150" y="45" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold">RIM ${s.rim_fg}%</text>
               <text x="150" y="58" text-anchor="middle" fill="#93c5fd" font-size="9">Freq ${s.rim_freq}%</text>
-              <!-- Zona 2: Mid-Range -->
               <rect x="110" y="95" width="80" height="36" rx="6" fill="rgba(168,85,247,0.25)" stroke="#a855f7" stroke-width="1.5"/>
               <text x="150" y="111" text-anchor="middle" fill="#ffffff" font-size="10" font-weight="bold">MID ${s.mid_fg}%</text>
               <text x="150" y="124" text-anchor="middle" fill="#d8b4fe" font-size="9">Freq ${s.mid_freq}%</text>
-              <!-- Zona 3: 3-Point Perimetro -->
               <rect x="95" y="165" width="110" height="40" rx="8" fill="rgba(16,185,129,0.25)" stroke="#10b981" stroke-width="2"/>
               <text x="150" y="183" text-anchor="middle" fill="#ffffff" font-size="11" font-weight="bold">3PT ${s.three_p_pct}%</text>
               <text x="150" y="197" text-anchor="middle" fill="#6ee7b7" font-size="9">${s.tpa} 3PA/g (${s.three_par}%)</text>
@@ -376,8 +398,7 @@
       renderNotes(p.id);
     }
 
-    // Gestione Note & Video Utenti
-    function getNotesStore() {
+    function getLocalNotes() {
       return JSON.parse(localStorage.getItem('ncaa_user_scouting_notes') || '{}');
     }
 
@@ -388,22 +409,29 @@
     }
 
     function renderNotes(playerId) {
-      const store = getNotesStore();
-      const notes = store[playerId] || [];
+      const shared = (SHARED_NOTES[playerId] || []).map(n => ({ ...n, isShared: true }));
+      const local = (getLocalNotes()[playerId] || []).map((n, idx) => ({ ...n, isShared: false, localIdx: idx }));
+      const combined = [...local, ...shared];
       const container = document.getElementById('player-notes-list');
 
-      if (notes.length === 0) {
-        container.innerHTML = `<p class="text-xs text-slate-500 italic">Nessuna nota o video ancora inserito per questo giocatore. Aggiungi il primo report qui sopra.</p>`;
+      if (combined.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-500 italic">Nessuna nota o video ancora presente per questo giocatore. Sii il primo a pubblicare un report!</p>`;
         return;
       }
 
-      container.innerHTML = notes.map((n, idx) => {
+      container.innerHTML = combined.map(n => {
         const ytId = extractYouTubeId(n.video);
         return `
           <div class="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
             <div class="flex justify-between items-center text-xs">
-              <span class="font-bold text-blue-400">${n.author} <span class="text-slate-500 font-normal ml-2">${n.date}</span></span>
-              <button onclick="deleteNote('${playerId}', ${idx})" class="text-rose-400 hover:underline">Elimina</button>
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-blue-400">${n.author}</span>
+                <span class="text-slate-500">${n.date}</span>
+                ${n.isShared 
+                  ? '<span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold">Pubblica</span>' 
+                  : '<span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 text-[10px] font-semibold">Bozza Locale</span>'}
+              </div>
+              ${!n.isShared ? `<button onclick="deleteNote('${playerId}', ${n.localIdx})" class="text-rose-400 hover:underline">Elimina bozza</button>` : ''}
             </div>
             <p class="text-sm text-slate-200 whitespace-pre-line">${n.text}</p>
             ${ytId ? `
@@ -419,21 +447,31 @@
     document.getElementById('note-form').addEventListener('submit', e => {
       e.preventDefault();
       if (!CURRENT_PLAYER_ID) return;
-      const store = getNotesStore();
+
+      const author = document.getElementById('note-author').value.trim();
+      const video = document.getElementById('note-video').value.trim();
+      const text = document.getElementById('note-text').value.trim();
+
+      const store = getLocalNotes();
       if (!store[CURRENT_PLAYER_ID]) store[CURRENT_PLAYER_ID] = [];
       store[CURRENT_PLAYER_ID].unshift({
-        author: document.getElementById('note-author').value.trim(),
-        video: document.getElementById('note-video').value.trim(),
-        text: document.getElementById('note-text').value.trim(),
+        author, video, text,
         date: new Date().toLocaleDateString('it-IT')
       });
       localStorage.setItem('ncaa_user_scouting_notes', JSON.stringify(store));
       e.target.reset();
       renderNotes(CURRENT_PLAYER_ID);
+
+      const issueTitle = encodeURIComponent(`[SCOUTING] ${CURRENT_PLAYER_ID} - Report di ${author}`);
+      const issueBody = encodeURIComponent(`PLAYER_ID: ${CURRENT_PLAYER_ID}\nAUTHOR: ${author}\nVIDEO: ${video}\nNOTE:\n${text}`);
+      const ghUrl = `https://github.com/${GITHUB_REPO}/issues/new?title=${issueTitle}&body=${issueBody}`;
+      if (confirm("Nota salvata! Vuoi pubblicarla anche nel database condiviso per tutti i visitatori (tramite GitHub)?")) {
+        window.open(ghUrl, '_blank');
+      }
     });
 
     function deleteNote(playerId, idx) {
-      const store = getNotesStore();
+      const store = getLocalNotes();
       store[playerId].splice(idx, 1);
       localStorage.setItem('ncaa_user_scouting_notes', JSON.stringify(store));
       renderNotes(playerId);
@@ -447,7 +485,6 @@
       a.click();
     }
 
-    // Router Hash (#leaderboard vs #player/slug)
     function handleRoute() {
       const hash = location.hash || '#leaderboard';
       if (hash.startsWith('#player/')) {
