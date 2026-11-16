@@ -1,13 +1,4 @@
-import json
-import os
-import re
-import time
-from datetime import datetime, timezone
-import cloudscraper
-from bs4 import BeautifulSoup
 
-REALGM_URL = "https://basketball.realgm.com/national/teams/6/Italy/ncaa_players"
-TANKATHON_URL = "https://www.tankathon.com/big-board"
 GITHUB_REPO = os.environ.get("GITHUB_REPOSITORY", "Lolarok/ncaa-italiani")
 
 def get_scraper():
