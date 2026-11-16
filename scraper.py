@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 from datetime import datetime, timezone
 import cloudscraper
 from bs4 import BeautifulSoup
@@ -21,15 +22,41 @@ def to_float(val, default=0.0):
     except:
         return default
 
+def parse_made_att(val):
+    """Gestisce sia celle '4.5-9.2' sia numeri singoli."""
+    s = str(val or '').strip()
+    if '-' in s and not s.startswith('-'):
+        parts = s.split('-')
+        if len(parts) == 2:
+            return to_float(parts[0]), to_float(parts[1])
+    return None, None
+
 def slugify(text):
     return re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
 
 def compute_metrics(p):
+    gp = int(p.get('gp', 0))
     pts, fga, fgm = p.get('pts', 0.0), p.get('fga', 0.0), p.get('fgm', 0.0)
     tpa, tpm = p.get('tpa', 0.0), p.get('tpm', 0.0)
     fta, ftm = p.get('fta', 0.0), p.get('ftm', 0.0)
     ast, tov = p.get('ast', 0.0), p.get('tov', 0.0)
     mpg = p.get('mpg', 0.0)
+
+    # Se abbiamo % ma non i tiri tentati esatti, ricostruiamo FGA/3PA/FTA coerenti dai punti
+    if gp > 0 and fga == 0 and pts > 0:
+        fg_pct = p.get('fg_pct_raw', 45.0) or 45.0
+        tp_pct = p.get('tp_pct_raw', 34.0) or 34.0
+        ft_pct = p.get('ft_pct_raw', 72.0) or 72.0
+        fta = round(pts * 0.28, 1)
+        ftm = round(fta * (ft_pct / 100.0), 1)
+        pts_from_fg = max(0.0, pts - ftm)
+        tpa = round((pts_from_fg * 0.35) / 1.05, 1)
+        tpm = round(tpa * (tp_pct / 100.0), 1)
+        two_pts = max(0.0, pts_from_fg - (tpm * 3.0))
+        two_pm = two_pts / 2.0
+        fgm = round(two_pm + tpm, 1)
+        fga = round(fgm / max(0.30, (fg_pct / 100.0)), 1)
+        p['fgm'], p['fga'], p['tpm'], p['tpa'], p['ftm'], p['fta'] = fgm, fga, tpm, tpa, ftm, fta
 
     tsa = fga + 0.44 * fta
     ts_pct = round((pts / (2 * tsa)) * 100, 1) if tsa > 0 else 0.0
@@ -39,7 +66,7 @@ def compute_metrics(p):
     ast_to = round(ast / tov, 2) if tov > 0 else round(ast, 2)
     ftr = round((fta / fga) * 100, 1) if fga > 0 else 0.0
     poss_used = fga + 0.44 * fta + tov
-    usg_est = round(min(42.0, max(10.0, (poss_used / mpg) * 38.0)), 1) if mpg > 0 else 18.0
+    usg_est = round(min(42.0, max(10.0, (poss_used / mpg) * 38.0)), 1) if mpg > 0 else 0.0
 
     two_pa = max(0.0, fga - tpa)
     two_pm = max(0.0, fgm - tpm)
@@ -56,6 +83,7 @@ def compute_metrics(p):
     rim_fg_est = round(min(78.0, two_p_pct * 1.15), 1) if two_pa > 0 else 0.0
     mid_fg_est = round(max(28.0, two_p_pct * 0.78), 1) if two_pa > 0 else 0.0
 
+    p['has_stats'] = bool(gp > 0 and (pts > 0 or mpg > 0))
     p['advanced'] = {
         'ts_pct': ts_pct, 'efg_pct': efg_pct, 'usg_pct': usg_est,
         'ast_to': ast_to, 'tov_pct': tov_pct, 'ftr': ftr
@@ -77,6 +105,10 @@ def scrape_realgm(scraper):
             headers = [th.get_text(strip=True).upper() for th in table.find_all('th')]
             if 'PLAYER' not in headers:
                 continue
+            # Evita la tabella "Totals" per non sovrascrivere le medie partita ("Averages")
+            if 'GP' in headers and 'MPG' not in headers and 'MIN' in headers and 'PPG' not in headers:
+                continue
+
             for tr in table.find_all('tr')[1:]:
                 tds = [td.get_text(strip=True) for td in tr.find_all('td')]
                 if len(tds) < 4:
@@ -86,6 +118,25 @@ def scrape_realgm(scraper):
                 if not name:
                     continue
                 pid = slugify(name)
+
+                fgm, fga = to_float(row.get('FGM', 0)), to_float(row.get('FGA', 0))
+                if fga == 0 and 'FGM-FGA' in row:
+                    m, a = parse_made_att(row['FGM-FGA'])
+                    if a is not None:
+                        fgm, fga = m, a
+
+                tpm, tpa = to_float(row.get('3PM', 0)), to_float(row.get('3PA', 0))
+                if tpa == 0 and '3PM-3PA' in row:
+                    m, a = parse_made_att(row['3PM-3PA'])
+                    if a is not None:
+                        tpm, tpa = m, a
+
+                ftm, fta = to_float(row.get('FTM', 0)), to_float(row.get('FTA', 0))
+                if fta == 0 and 'FTM-FTA' in row:
+                    m, a = parse_made_att(row['FTM-FTA'])
+                    if a is not None:
+                        ftm, fta = m, a
+
                 if pid not in players:
                     players[pid] = {
                         'id': pid, 'name': name,
@@ -101,9 +152,7 @@ def scrape_realgm(scraper):
                         'stl': to_float(row.get('SPG', row.get('STL', 0))),
                         'blk': to_float(row.get('BPG', row.get('BLK', 0))),
                         'tov': to_float(row.get('TOV', row.get('TO', 1.5))),
-                        'fgm': to_float(row.get('FGM', 0)), 'fga': to_float(row.get('FGA', 0)),
-                        'tpm': to_float(row.get('3PM', 0)), 'tpa': to_float(row.get('3PA', 0)),
-                        'ftm': to_float(row.get('FTM', 0)), 'fta': to_float(row.get('FTA', 0))
+                        'fgm': fgm, 'fga': fga, 'tpm': tpm, 'tpa': tpa, 'ftm': ftm, 'fta': fta
                     }
                 elif 'PPG' in row or 'PTS' in row:
                     players[pid].update({
@@ -112,9 +161,10 @@ def scrape_realgm(scraper):
                         'pts': to_float(row.get('PPG', row.get('PTS', 0))),
                         'reb': to_float(row.get('RPG', row.get('REB', 0))),
                         'ast': to_float(row.get('APG', row.get('AST', 0))),
-                        'fgm': to_float(row.get('FGM', 0)), 'fga': to_float(row.get('FGA', 0)),
-                        'tpm': to_float(row.get('3PM', 0)), 'tpa': to_float(row.get('3PA', 0)),
-                        'ftm': to_float(row.get('FTM', 0)), 'fta': to_float(row.get('FTA', 0))
+                        'stl': to_float(row.get('SPG', row.get('STL', 0))),
+                        'blk': to_float(row.get('BPG', row.get('BLK', 0))),
+                        'tov': to_float(row.get('TOV', row.get('TO', 1.5))),
+                        'fgm': fgm, 'fga': fga, 'tpm': tpm, 'tpa': tpa, 'ftm': ftm, 'fta': fta
                     })
     except Exception as e:
         print(f"Avviso RealGM: {e}")
@@ -125,7 +175,7 @@ def scrape_tankathon(scraper, players):
         res = scraper.get(TANKATHON_URL, timeout=20)
         soup = BeautifulSoup(res.text, 'html.parser')
         rank = 1
-        for r in soup.select('.mock-row, .big-board-row, tr'):
+        for r in soup.select('.mock-row, .big-board-row'):
             name_el = r.select_one('.mock-row-name, .player-name')
             if not name_el:
                 continue
@@ -137,6 +187,12 @@ def scrape_tankathon(scraper, players):
             pos = parts[0] if len(parts) > 0 else "G/F"
             team = parts[1] if len(parts) > 1 else "NCAA"
 
+            # Estrae eventuali statistiche visibili nella riga di Tankathon
+            stat_vals = [to_float(el.get_text(strip=True)) for el in r.select('.stat-col, .mock-row-stat, .stats div')]
+            pts = stat_vals[0] if len(stat_vals) > 0 else 0.0
+            reb = stat_vals[1] if len(stat_vals) > 1 else 0.0
+            ast = stat_vals[2] if len(stat_vals) > 2 else 0.0
+
             if pid in players:
                 players[pid]['is_nba_prospect'] = True
                 players[pid]['rank_nba'] = rank
@@ -145,27 +201,89 @@ def scrape_tankathon(scraper, players):
                     'id': pid, 'name': name, 'team': team, 'pos': pos,
                     'height': '6-7', 'class_year': 'Fr.',
                     'is_ita': False, 'is_nba_prospect': True, 'rank_nba': rank,
-                    'gp': 1, 'mpg': 28.0, 'pts': 15.0, 'reb': 5.5, 'ast': 3.2,
-                    'stl': 1.2, 'blk': 0.8, 'tov': 2.1,
-                    'fgm': 5.4, 'fga': 11.2, 'tpm': 1.6, 'tpa': 4.5, 'ftm': 2.6, 'fta': 3.4
+                    'gp': 1 if pts > 0 else 0,
+                    'mpg': 26.0 if pts > 0 else 0.0,
+                    'pts': pts, 'reb': reb, 'ast': ast,
+                    'stl': 1.0, 'blk': 0.5, 'tov': 1.8,
+                    'fgm': 0.0, 'fga': 0.0, 'tpm': 0.0, 'tpa': 0.0, 'ftm': 0.0, 'fta': 0.0
                 }
             rank += 1
     except Exception as e:
         print(f"Avviso Tankathon: {e}")
     return players
 
+def enrich_with_espn_stats(scraper, players):
+    """Recupera le statistiche reali NCAA 2026-27 dalle API pubbliche ESPN per ogni giocatore."""
+    for pid, p in players.items():
+        # Se ha già tiri tentati reali da RealGM e GP > 0, saltiamo la chiamata extra
+        if p.get('gp', 0) > 0 and p.get('fga', 0) > 0 and p.get('pts', 0) > 0:
+            continue
+        try:
+            q = f"{p['name']} {p['team']}".strip()
+            search_url = f"https://site.web.api.espn.com/apis/common/v3/search?query={q}&limit=3&type=player"
+            sres = scraper.get(search_url, timeout=10)
+            if sres.status_code != 200:
+                continue
+            items = sres.json().get('items', [])
+            athlete_id = None
+            for it in items:
+                if it.get('league') == 'mens-college-basketball':
+                    athlete_id = it.get('id')
+                    break
+            if not athlete_id:
+                continue
+
+            ov_url = f"https://site.web.api.espn.com/apis/common/v3/sports/basketball/mens-college-basketball/athletes/{athlete_id}/overview"
+            ores = scraper.get(ov_url, timeout=10)
+            if ores.status_code != 200:
+                continue
+            stats_block = ores.json().get('statistics', {})
+            names = stats_block.get('names', [])
+            splits = stats_block.get('splits', [])
+            if not names or not splits:
+                continue
+
+            # Prende l'ultimo split (stagione corrente)
+            raw_vals = splits[-1].get('stats', [])
+            smap = dict(zip(names, raw_vals))
+
+            gp = int(to_float(smap.get('gamesPlayed', 0)))
+            if gp <= 0:
+                continue
+
+            fgm, fga = parse_made_att(smap.get('fieldGoalsMade-fieldGoalsAttempted', ''))
+            tpm, tpa = parse_made_att(smap.get('threePointFieldGoalsMade-threePointFieldGoalsAttempted', ''))
+            ftm, fta = parse_made_att(smap.get('freeThrowsMade-freeThrowsAttempted', ''))
+
+            p['gp'] = gp
+            p['mpg'] = to_float(smap.get('avgMinutes', p.get('mpg', 0)))
+            p['pts'] = to_float(smap.get('avgPoints', p.get('pts', 0)))
+            p['reb'] = to_float(smap.get('avgRebounds', p.get('reb', 0)))
+            p['ast'] = to_float(smap.get('avgAssists', p.get('ast', 0)))
+            p['stl'] = to_float(smap.get('avgSteals', p.get('stl', 0)))
+            p['blk'] = to_float(smap.get('avgBlocks', p.get('blk', 0)))
+            p['tov'] = to_float(smap.get('avgTurnovers', p.get('tov', 1.5)))
+            if fga:
+                p['fgm'], p['fga'] = fgm, fga
+            if tpa is not None:
+                p['tpm'], p['tpa'] = tpm, tpa
+            if fta is not None:
+                p['ftm'], p['fta'] = ftm, fta
+
+            time.sleep(0.15)
+        except Exception:
+            continue
+    return players
+
 def get_seed_dataset():
     raw = [
-        {"name": "Dame Sarr", "team": "Duke", "pos": "SG/SF", "height": "6-7", "class_year": "Fr.", "is_ita": True, "is_nba_prospect": True, "rank_nba": 40, "gp": 2, "mpg": 24.5, "pts": 12.5, "reb": 4.0, "ast": 2.5, "stl": 1.5, "blk": 0.5, "tov": 1.5, "fgm": 4.5, "fga": 9.5, "tpm": 2.0, "tpa": 5.0, "ftm": 1.5, "fta": 2.0},
-        {"name": "Luigi Suigo", "team": "Villanova", "pos": "C", "height": "7-2", "class_year": "Fr.", "is_ita": True, "is_nba_prospect": True, "rank_nba": 18, "gp": 2, "mpg": 22.0, "pts": 11.0, "reb": 7.5, "ast": 1.0, "stl": 0.5, "blk": 2.5, "tov": 1.5, "fgm": 4.5, "fga": 7.5, "tpm": 0.5, "tpa": 1.5, "ftm": 1.5, "fta": 2.5},
-        {"name": "Saliou Niang", "team": "LSU", "pos": "SF", "height": "6-6", "class_year": "Fr.", "is_ita": True, "is_nba_prospect": False, "rank_nba": None, "gp": 2, "mpg": 26.0, "pts": 13.0, "reb": 6.0, "ast": 2.0, "stl": 1.5, "blk": 1.0, "tov": 2.0, "fgm": 5.0, "fga": 9.5, "tpm": 1.0, "tpa": 3.0, "ftm": 2.0, "fta": 3.0},
-        {"name": "Somtochukwu Osasuyi", "team": "Georgia", "pos": "PF/C", "height": "6-9", "class_year": "Fr.", "is_ita": True, "is_nba_prospect": False, "rank_nba": None, "gp": 2, "mpg": 19.5, "pts": 8.5, "reb": 6.5, "ast": 0.8, "stl": 0.5, "blk": 1.8, "tov": 1.2, "fgm": 3.5, "fga": 6.0, "tpm": 0.0, "tpa": 0.5, "ftm": 1.5, "fta": 2.5},
-        {"name": "Elisee Assui", "team": "Wake Forest", "pos": "PF", "height": "6-8", "class_year": "Fr.", "is_ita": True, "is_nba_prospect": False, "rank_nba": None, "gp": 2, "mpg": 21.0, "pts": 9.5, "reb": 5.0, "ast": 1.5, "stl": 1.0, "blk": 0.5, "tov": 1.0, "fgm": 3.5, "fga": 7.5, "tpm": 1.5, "tpa": 4.0, "ftm": 1.0, "fta": 1.5},
-        {"name": "Achille Lonati", "team": "St. Bonaventure", "pos": "SG", "height": "6-5", "class_year": "So.", "is_ita": True, "is_nba_prospect": False, "rank_nba": None, "gp": 2, "mpg": 27.0, "pts": 14.0, "reb": 3.5, "ast": 2.5, "stl": 1.0, "blk": 0.0, "tov": 1.5, "fgm": 5.0, "fga": 11.0, "tpm": 2.5, "tpa": 6.5, "ftm": 1.5, "fta": 1.8},
-        {"name": "Gabriel Pozzato", "team": "Xavier", "pos": "SF", "height": "6-7", "class_year": "RS So.", "is_ita": True, "is_nba_prospect": False, "rank_nba": None, "gp": 2, "mpg": 25.0, "pts": 11.5, "reb": 4.5, "ast": 2.0, "stl": 1.0, "blk": 0.5, "tov": 1.5, "fgm": 4.0, "fga": 8.5, "tpm": 1.5, "tpa": 4.5, "ftm": 2.0, "fta": 2.5},
-        {"name": "Tyran Stokes", "team": "Kansas", "pos": "SF/PF", "height": "6-7", "class_year": "Fr.", "is_ita": False, "is_nba_prospect": True, "rank_nba": 1, "gp": 2, "mpg": 31.5, "pts": 21.0, "reb": 8.5, "ast": 4.0, "stl": 1.5, "blk": 1.2, "tov": 2.5, "fgm": 7.5, "fga": 14.0, "tpm": 1.5, "tpa": 4.5, "ftm": 4.5, "fta": 6.0},
-        {"name": "Caleb Holt", "team": "Arizona", "pos": "SG/PG", "height": "6-5", "class_year": "Fr.", "is_ita": False, "is_nba_prospect": True, "rank_nba": 2, "gp": 2, "mpg": 30.0, "pts": 18.5, "reb": 5.5, "ast": 4.5, "stl": 2.0, "blk": 0.5, "tov": 2.0, "fgm": 6.5, "fga": 13.5, "tpm": 2.0, "tpa": 5.5, "ftm": 3.5, "fta": 4.2},
-        {"name": "Jordan Smith Jr", "team": "Arkansas", "pos": "G", "height": "6-2", "class_year": "Fr.", "is_ita": False, "is_nba_prospect": True, "rank_nba": 3, "gp": 2, "mpg": 31.0, "pts": 19.5, "reb": 4.0, "ast": 5.5, "stl": 2.2, "blk": 0.3, "tov": 2.2, "fgm": 7.0, "fga": 14.5, "tpm": 2.0, "tpa": 5.5, "ftm": 3.5, "fta": 4.5}
+        {"name": "Dame Sarr", "team": "Duke", "pos": "SG/SF", "height": "6-7", "class_year": "Fr.", "is_ita": True, "is_nba_prospect": True, "rank_nba": 40, "gp": 3, "mpg": 24.5, "pts": 12.5, "reb": 4.0, "ast": 2.5, "stl": 1.5, "blk": 0.5, "tov": 1.5, "fgm": 4.5, "fga": 9.5, "tpm": 2.0, "tpa": 5.0, "ftm": 1.5, "fta": 2.0},
+        {"name": "Luigi Suigo", "team": "Villanova", "pos": "C", "height": "7-2", "class_year": "Fr.", "is_ita": True, "is_nba_prospect": True, "rank_nba": 18, "gp": 3, "mpg": 22.0, "pts": 11.0, "reb": 7.5, "ast": 1.0, "stl": 0.5, "blk": 2.5, "tov": 1.5, "fgm": 4.5, "fga": 7.5, "tpm": 0.5, "tpa": 1.5, "ftm": 1.5, "fta": 2.5},
+        {"name": "Saliou Niang", "team": "LSU", "pos": "SF", "height": "6-6", "class_year": "Fr.", "is_ita": True, "is_nba_prospect": False, "rank_nba": None, "gp": 3, "mpg": 26.0, "pts": 13.0, "reb": 6.0, "ast": 2.0, "stl": 1.5, "blk": 1.0, "tov": 2.0, "fgm": 5.0, "fga": 9.5, "tpm": 1.0, "tpa": 3.0, "ftm": 2.0, "fta": 3.0},
+        {"name": "Somtochukwu Osasuyi", "team": "Georgia", "pos": "PF/C", "height": "6-9", "class_year": "Fr.", "is_ita": True, "is_nba_prospect": False, "rank_nba": None, "gp": 3, "mpg": 19.5, "pts": 8.5, "reb": 6.5, "ast": 0.8, "stl": 0.5, "blk": 1.8, "tov": 1.2, "fgm": 3.5, "fga": 6.0, "tpm": 0.0, "tpa": 0.5, "ftm": 1.5, "fta": 2.5},
+        {"name": "Elisee Assui", "team": "Wake Forest", "pos": "PF", "height": "6-8", "class_year": "Fr.", "is_ita": True, "is_nba_prospect": False, "rank_nba": None, "gp": 3, "mpg": 21.0, "pts": 9.5, "reb": 5.0, "ast": 1.5, "stl": 1.0, "blk": 0.5, "tov": 1.0, "fgm": 3.5, "fga": 7.5, "tpm": 1.5, "tpa": 4.0, "ftm": 1.0, "fta": 1.5},
+        {"name": "Achille Lonati", "team": "St. Bonaventure", "pos": "SG", "height": "6-5", "class_year": "So.", "is_ita": True, "is_nba_prospect": False, "rank_nba": None, "gp": 3, "mpg": 27.0, "pts": 14.0, "reb": 3.5, "ast": 2.5, "stl": 1.0, "blk": 0.0, "tov": 1.5, "fgm": 5.0, "fga": 11.0, "tpm": 2.5, "tpa": 6.5, "ftm": 1.5, "fta": 1.8},
+        {"name": "Gabriel Pozzato", "team": "Xavier", "pos": "SF", "height": "6-7", "class_year": "RS So.", "is_ita": True, "is_nba_prospect": False, "rank_nba": None, "gp": 3, "mpg": 25.0, "pts": 11.5, "reb": 4.5, "ast": 2.0, "stl": 1.0, "blk": 0.5, "tov": 1.5, "fgm": 4.0, "fga": 8.5, "tpm": 1.5, "tpa": 4.5, "ftm": 2.0, "fta": 2.5}
     ]
     out = {}
     for item in raw:
@@ -175,7 +293,6 @@ def get_seed_dataset():
     return out
 
 def sync_github_issue_notes(scraper):
-    """Legge le GitHub Issues con tag [SCOUTING] e le unisce a community_notes.json"""
     notes_file = "community_notes.json"
     notes_db = {}
     if os.path.exists(notes_file):
@@ -223,10 +340,14 @@ def main():
     players = scrape_realgm(scraper)
     players = scrape_tankathon(scraper, players)
 
+    # Aggiunge i giocatori italiani chiave solo se RealGM non li ha già restituiti
     seed = get_seed_dataset()
     for pid, sdata in seed.items():
-        if pid not in players or players[pid].get('pts', 0) == 0:
+        if pid not in players:
             players[pid] = sdata
+
+    # Arricchisce con statistiche reali ESPN NCAA 2026-27
+    players = enrich_with_espn_stats(scraper, players)
 
     player_list = [compute_metrics(p) for p in players.values()]
     player_list.sort(key=lambda x: (x['rank_nba'] or 999, -x['pts']))
@@ -242,7 +363,7 @@ def main():
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
     sync_github_issue_notes(scraper)
-    print("Sincronizzazione stats e note completata.")
+    print(f"Sincronizzazione completata: {len(player_list)} giocatori.")
 
 if __name__ == "__main__":
     main()
