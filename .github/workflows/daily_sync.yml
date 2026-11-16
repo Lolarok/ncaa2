@@ -37,4 +37,8 @@ jobs:
           git config --local user.email "actions@github.com"
           git config --local user.name "NCAA Daily Bot"
           git add players_data.json community_notes.json
-          git diff --staged --quiet || (git commit -m "Auto-update stats, big board & community notes" && git push)
+          if ! git diff --staged --quiet; then
+            git commit -m "Auto-update stats, big board & community notes"
+            git pull --rebase origin main
+            git push
+          fi
