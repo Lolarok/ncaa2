@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="it" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NCAA Italians 2026-27 & NBA Draft Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background-color: #0b0f19; color: #e2e8f0; font-family: system-ui, -apple-system, sans-serif; }
+    .card { background-color: #151c2c; border: 1px solid #263147; border-radius: 0.75rem; }
+    .pct-bar { transition: width 0.4s ease; }
+  </style>
+</head>
+<body class="min-h-screen pb-16">
+
+  <header class="border-b border-slate-800 bg-[#0f1523]/95 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
+      <a href="#leaderboard" class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center font-black text-white">IT</div>
+        <div>
+          <h1 class="font-bold text-base sm:text-lg leading-none text-white">NCAA Italians 26/27 & Draft Radar</h1>
+          <p id="status-bar" class="text-xs text-emerald-400 mt-1">Roster caricato — clicca Aggiorna per sincronizzare ESPN</p>
+        </div>
+      </a>
+      <button id="btn-sync" onclick="syncEspnLive()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow cursor-pointer">
+        🔄 Aggiorna Ora
+      </button>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 mt-5">
+
+    <!-- VISTA 1: LEADERBOARD -->
+    <section id="view-leaderboard" class="space-y-5">
+      <div class="card p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Cerca Giocatore / College</label>
+          <input id="f-search" type="text" placeholder="Es. Suigo, Lonati, Sarr..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Gruppo</label>
+          <select id="f-group" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
+            <option value="ALL">Tutti (Italiani + Big Board NBA)</option>
+            <option value="ITA">Solo Italiani NCAA (36)</option>
+            <option value="NBA">Solo Prospetti NBA (Tankathon)</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Ruolo</label>
+          <select id="f-pos" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
+            <option value="ALL">Tutti i ruoli</option>
+            <option value="G">Guardie (G)</option>
+            <option value="F">Ali (F)</option>
+            <option value="C">Lunghi (C)</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Ordina Per</label>
+          <select id="f-sort" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white">
+            <option value="pts">Punti (PPG)</option>
+            <option value="mpg">Minuti (MPG)</option>
+            <option value="reb">Rimbalzi (RPG)</option>
+            <option value="ast">Assist (APG)</option>
+            <option value="ts_pct">True Shooting (TS%)</option>
+            <option value="rank_nba">Draft Rank NBA</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 block mb-1">Minimo MPG: <span id="mpg-lbl" class="text-blue-400 font-bold">0</span></label>
+          <input id="f-mpg" type="range" min="0" max="35" value="0" class="w-full accent-blue-500 mt-2">
+        </div>
+      </div>
+
+      <div class="card overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr class="border-b border-slate-800 bg-slate-900/60 text-xs uppercase text-slate-400">
+                <th class="py-3 px-4">Giocatore</th>
+                <th class="py-3 px-2">Tag</th>
+                <th class="py-3 px-3">College 26/27</th>
+                <th class="py-3 px-2 text-center">Ruolo</th>
+                <th class="py-3 px-2 text-right">GP</th>
+                <th class="py-3 px-2 text-right">MPG</th>
+                <th class="py-3 px-2 text-right">PPG</th>
+                <th class="py-3 px-2 text-right">RPG</th>
+                <th class="py-3 px-2 text-right">APG</th>
+                <th class="py-3 px-2 text-right">TS%</th>
+                <th class="py-3 px-2 text-right">eFG%</th>
+                <th class="py-3 px-2 text-right">3PAr</th>
+                <th class="py-3 px-3 text-center">Scheda</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-body" class="divide-y divide-slate-800/70"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- VISTA 2: SCHEDA GIOCATORE -->
+    <section id="view-player" class="hidden space-y-6">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <a href="#leaderboard" class="text-sm text-blue-400 hover:text-blue-300 font-semibold">← Torna alla Leaderboard</a>
+        <select id="peer-select" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white">
+          <option value="ALL">Percentili vs Tutti gli Attivi</option>
+          <option value="ITA">Percentili vs Solo Italiani</option>
+          <option value="NBA">Percentili vs Solo Big Board NBA</option>
+        </select>
+      </div>
+
+      <div id="player-header" class="card p-5"></div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="card p-5 space-y-4">
+          <h3 class="text-base font-bold text-white">Statistiche Avanzate & Percentili</h3>
+          <div id="player-percentiles" class="space-y-3.5"></div>
+        </div>
+        <div class="card p-5 space-y-4">
+          <h3 class="text-base font-bold text-white">Mappa & Selezione di Tiro</h3>
+          <div id="player-shot-chart"></div>
+        </div>
+      </div>
+
+      <div class="card p-5 space-y-4">
+        <h3 class="text-base font-bold text-white">Note Scouting & Video Utenti</h3>
+        <form id="note-form" class="grid grid-cols-1 md:grid-cols-4 gap-3 bg-slate-900/70 p-3.5 rounded-lg border border-slate-800">
+          <input id="n-author" type="text" placeholder="Tuo nome" required class="bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-white">
+          <input id="n-video" type="url" placeholder="Link YouTube (opzionale)" class="bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-2">
+          <button type="submit" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded px-4 py-2 text-sm">Salva Nota</button>
+          <textarea id="n-text" rows="2" placeholder="Aggiungi osservazioni tecniche sul giocatore..." required class="bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm text-white md:col-span-4"></textarea>
+        </form>
+        <div id="notes-list" class="space-y-3"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const GITHUB_REPO = "Lolarok/ncaa2";
+    const ROSTER_SEED = [
+      ["Dame Sarr","Duke","150","SG/SF",1,38],["Luigi Suigo","Villanova","222","C",1,18],
+      ["Saliou Niang","LSU","99","SF",1,null],["Elisee Assui","Florida State","52","PF",1,null],
+      ["Andrew Osasuyi","Georgia","61","PF/C",1,null],["Diego Garavaglia","Rutgers","164","SF",1,null],
+      ["Leonardo Marangon","Providence","2507","G/F",1,null],["Emmanuel Innocenti","Arizona State","9","F",1,null],
+      ["Achille Lonati","St. Bonaventure","179","SG",1,null],["Gabriel Pozzato","Xavier","2752","SF",1,null],
+      ["Maikcol Perez","Baylor","239","PF",1,null],["David Torresani","San Diego State","21","PG",1,null],
+      ["Luca Vincini","San Diego State","21","C",1,null],["Timothy Van Der Knaap","Bradley","71","PF",1,null],
+      ["Leonardo Van Elswyk","Stony Brook","2619","C",1,null],["Rene D'Amelio","California Baptist","2856","F",1,null],
+      ["Niccolo Moretti","Lamar","2320","PG",1,null],["Riccardo Greppi","Sam Houston State","2534","C",1,null],
+      ["Samuele Miccoli","Niagara","315","PG",1,null],["Daniel Emokhare","Niagara","315","G/F",1,null],
+      ["Brian Angeletti","Niagara","315","F",1,null],["Davide Poser","New Hampshire","160","F",1,null],
+      ["Daniel James","Central Connecticut","2115","G/F",1,null],["Alessandro Perotti","USC Upstate","2908","C",1,null],
+      ["Mario Brunetto","Vermont","261","F",1,null],["Michelangelo Oberti","Boston University","104","C",1,null],
+      ["Mattia De Martin","Wyoming","2751","F",1,null],["Nicholas Errica","Charleston Southern","2127","G",1,null],
+      ["Nicolo Virginio","Charleston","232","F",1,null],["Alessio Calamita","Indiana State","282","F/C",1,null],
+      ["Federico Grani","New Mexico","167","F",1,null],["Pietro Ranieri","Southern Illinois","79","G/F",1,null],
+      ["Lucio Martini","Old Dominion","295","C",1,null],["Francesco Corato","Portland State","2502","F",1,null],
+      ["Randy Livingston Jr.","Texas State","326","G",1,null],["Pietro Iannuzzi","Cal State Bakersfield","2934","SG",1,null],
+      ["Tyran Stokes","Kansas","2305","SF/PF",0,1],["Caleb Holt","Arizona","12","SG/PG",0,2],
+      ["Jordan Smith Jr","Arkansas","8","G",0,3],["Cameron Williams","Duke","150","PF/C",0,4],
+      ["Anthony Thompson","Ohio State","194","SF",0,5],["Bruce Branch III","BYU","252","SF",0,6],
+      ["Christian Collins","USC","30","PF",0,7],["Babatunde Oladotun","Maryland","120","SF",0,8],
+      ["Miikka Muurinen","Arizona","12","PF",0,9],["Brandon McCoy Jr","Duke","150","PG",0,10]
+    ];
+
+    function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
+    function norm(s) { return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+    function calcMetrics(p) {
+      const gp = p.gp || 0, pts = p.pts || 0, mpg = p.mpg || 0, ast = p.ast || 0, tov = p.tov || 0;
+      let fgm = p.fgm || 0, fga = p.fga || 0, tpm = p.tpm || 0, tpa = p.tpa || 0, ftm = p.ftm || 0, fta = p.fta || 0;
+
+      if (fga === 0 && pts > 0 && p.fg_pct_raw > 0) {
+        const fgP = p.fg_pct_raw / 100, tpP = (p.tp_pct_raw || 33) / 100, ftP = (p.ft_pct_raw || 72) / 100;
+        fta = +(pts * 0.26).toFixed(2); ftm = +(fta * ftP).toFixed(2);
+        const rem = Math.max(0, pts - ftm);
+        tpm = +((rem * (tpP > 0 ? 0.33 : 0)) / 3).toFixed(2);
+        tpa = tpP > 0 ? +(tpm / tpP).toFixed(2) : 0;
+        fgm = +(Math.max(0, (rem - tpm * 3) / 2) + tpm).toFixed(2);
+        fga = fgP > 0 ? +(fgm / fgP).toFixed(2) : 0;
+      }
+
+      const tsa = fga + 0.44 * fta;
+      const ts_pct = tsa > 0 ? +(pts / (2 * tsa) * 100).toFixed(1) : 0;
+      const efg_pct = fga > 0 ? +(((fgm + 0.5 * tpm) / fga) * 100).toFixed(1) : 0;
+      const ftr = fga > 0 ? +((fta / fga) * 100).toFixed(1) : 0;
+      const ast_to = tov > 0 ? +(ast / tov).toFixed(2) : +ast.toFixed(2);
+      const poss = fga + 0.44 * fta + tov;
+      const usg_pct = (mpg > 0 && poss > 0) ? +Math.min(42, Math.max(10, (poss / mpg) * 38)).toFixed(1) : 0;
+
+      const two_pa = Math.max(0, fga - tpa), two_pm = Math.max(0, fgm - tpm);
+      const two_p_pct = two_pa > 0 ? +((two_pm / two_pa) * 100).toFixed(1) : 0;
+      const three_p_pct = tpa > 0 ? +((tpm / tpa) * 100).toFixed(1) : (p.tp_pct_raw || 0);
+      const ft_pct = fta > 0 ? +((ftm / fta) * 100).toFixed(1) : (p.ft_pct_raw || 0);
+      const three_par = fga > 0 ? +((tpa / fga) * 100).toFixed(1) : 0;
+      const two_par = fga > 0 ? +(100 - three_par).toFixed(1) : 0;
+
+      const baseRim = p.pos.includes('C') ? 0.66 : (p.pos.includes('F') ? 0.56 : 0.46);
+      const rim_freq = fga > 0 ? +(two_par * baseRim).toFixed(1) : 0;
+      const mid_freq = fga > 0 ? +Math.max(0, two_par - rim_freq).toFixed(1) : 0;
+      const rim_fg = two_pa > 0 ? +Math.min(78, two_p_pct * 1.14).toFixed(1) : 0;
+      const mid_fg = two_pa > 0 ? +Math.max(26, two_p_pct * 0.78).toFixed(1) : 0;
+
+      p.has_stats = gp > 0 && (pts > 0 || mpg > 0 || fga > 0);
+      p.advanced = { ts_pct, efg_pct, usg_pct, ast_to, ftr };
+      p.shot_selection = { rim_freq, mid_freq, three_par, rim_fg, mid_fg, two_p_pct, three_p_pct, ft_pct, two_pa: +two_pa.toFixed(1), tpa: +tpa.toFixed(1), fta: +fta.toFixed(1) };
+      return p;
+    }
+
+    let ALL_PLAYERS = ROSTER_SEED.map(([name, team, tid, pos, ita, rank]) => calcMetrics({
+      id: slug(name), name, team, tid, pos, height: '6-6', class_year: 'Fr.',
+      is_ita: Boolean(ita), is_nba_prospect: Boolean(rank), rank_nba: rank,
+      gp: 0, mpg: 0, pts: 0, reb: 0, ast: 0, tov: 0, fgm: 0, fga: 0, tpm: 0, tpa: 0, ftm: 0, fta: 0
+    }));
+    let CURRENT_ID = null;
+
+    function splitMA(s) {
+      const m = String(s || '').split('-');
+      return m.length === 2 ? [parseFloat(m[0]) || 0, parseFloat(m[1]) || 0] : [null, null];
+    }
+
+    async function fetchPlayerStats(aid, p) {
+      try {
+        const r = await fetch(`https://site.web.api.espn.com/apis/common/v3/sports/basketball/mens-college-basketball/athletes/${aid}/gamelog`);
+        if (r.ok) {
+          const d = await r.json();
+          const lbl = (d.labels || []).map(x => x.toUpperCase());
+          const evs = [];
+          (d.seasonTypes || []).forEach(st => (st.categories || []).forEach(c => evs.push(...(c.events || []))));
+          let gp = 0, min = 0, pts = 0, reb = 0, ast = 0, tov = 0, fgm = 0, fga = 0, tpm = 0, tpa = 0, ftm = 0, fta = 0;
+          evs.forEach(e => {
+            if (!e.stats || e.stats.length !== lbl.length) return;
+            const row = {}; lbl.forEach((k, i) => row[k] = e.stats[i]);
+            const m = parseFloat(row.MIN) || 0, pt = parseFloat(row.PTS) || 0;
+            if (m <= 0 && pt === 0) return;
+            gp++; min += m; pts += pt; reb += parseFloat(row.REB) || 0; ast += parseFloat(row.AST) || 0; tov += parseFloat(row.TO) || 0;
+            const [fm, fa] = splitMA(row.FG); if (fa !== null) { fgm += fm; fga += fa; }
+            const [tm, ta] = splitMA(row['3PT']); if (ta !== null) { tpm += tm; tpa += ta; }
+            const [ft_m, ft_a] = splitMA(row.FT); if (ft_a !== null) { ftm += ft_m; fta += ft_a; }
+          });
+          if (gp > 0) {
+            Object.assign(p, { gp, mpg: +(min/gp).toFixed(1), pts: +(pts/gp).toFixed(1), reb: +(reb/gp).toFixed(1), ast: +(ast/gp).toFixed(1), tov: +(tov/gp).toFixed(1), fgm: +(fgm/gp).toFixed(2), fga: +(fga/gp).toFixed(2), tpm: +(tpm/gp).toFixed(2), tpa: +(tpa/gp).toFixed(2), ftm: +(ftm/gp).toFixed(2), fta: +(fta/gp).toFixed(2) });
+            calcMetrics(p); return true;
+          }
+        }
+      } catch {}
+      try {
+        const r2 = await fetch(`https://site.web.api.espn.com/apis/common/v3/sports/basketball/mens-college-basketball/athletes/${aid}/overview`);
+        if (r2.ok) {
+          const st = (await r2.json()).statistics || {};
+          const lbl = (st.labels || []).map(x => x.toUpperCase());
+          const sp = (st.splits || []).slice(-1)[0];
+          if (lbl.length && sp?.stats) {
+            const row = {}; lbl.forEach((k, i) => row[k] = sp.stats[i]);
+            const gp = parseInt(row.GP) || 0;
+            if (gp > 0) {
+              Object.assign(p, { gp, mpg: parseFloat(row.MIN) || 0, pts: parseFloat(row.PTS) || 0, reb: parseFloat(row.REB) || 0, ast: parseFloat(row.AST) || 0, tov: parseFloat(row.TO) || 0, fg_pct_raw: parseFloat(row['FG%']) || 0, tp_pct_raw: parseFloat(row['3P%']) || 0, ft_pct_raw: parseFloat(row['FT%']) || 0 });
+              calcMetrics(p); return true;
+            }
+          }
+        }
+      } catch {}
+      return false;
+    }
+
+    async function syncEspnLive() {
+      const btn = document.getElementById('btn-sync');
+      const bar = document.getElementById('status-bar');
+      btn.disabled = true; btn.textContent = '⏳ Sincronizzo...';
+      bar.textContent = 'Lettura roster ufficiali NCAA da ESPN in corso...';
+
+      const tids = [...new Set(ALL_PLAYERS.map(p => p.tid))];
+      const rosters = {};
+      await Promise.all(tids.map(async tid => {
+        try {
+          const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/teams/${tid}/roster`);
+          if (r.ok) rosters[tid] = (await r.json()).athletes || [];
+        } catch {}
+      }));
+
+      let activeCount = 0;
+      for (let i = 0; i < ALL_PLAYERS.length; i += 6) {
+        const batch = ALL_PLAYERS.slice(i, i + 6);
+        bar.textContent = `Aggiornamento boxscore (${Math.min(i + 6, ALL_PLAYERS.length)}/${ALL_PLAYERS.length})...`;
+        await Promise.all(batch.map(async p => {
+          const list = rosters[p.tid] || [];
+          const last = norm(p.name.replace(/\b(Jr\.|Sr\.|III|II)\b/gi, '').trim().split(' ').pop());
+          const full = norm(p.name.replace(/\b(Jr\.|Sr\.|III|II)\b/gi, ''));
+          let ath = list.find(a => norm(a.fullName) === full || norm(a.lastName) === last || norm(a.fullName).includes(last));
+          let aid = ath ? String(ath.id) : null;
+          if (ath) {
+            if (ath.displayHeight) p.height = ath.displayHeight.replace('"', '').replace("' ", "-");
+            if (ath.experience?.abbreviation) p.class_year = ath.experience.abbreviation;
+          }
+          if (!aid) {
+            try {
+              const sr = await fetch(`https://site.web.api.espn.com/apis/common/v3/search?query=${encodeURIComponent(p.name)}&limit=5&type=player`);
+              if (sr.ok) {
+                const it = ((await sr.json()).items || []).find(x => JSON.stringify(x).includes('college-basketball'));
+                if (it?.id) aid = String(it.id);
+              }
+            } catch {}
+          }
+          if (aid && await fetchPlayerStats(aid, p)) activeCount++;
+        }));
+        renderLeaderboard();
+      }
+
+      const timeStr = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+      localStorage.setItem('ncaa_espn_cache_v4', JSON.stringify({ time: timeStr, players: ALL_PLAYERS }));
+      bar.textContent = `Aggiornato da ESPN alle ${timeStr} (${activeCount} giocatori con gare a referto)`;
+      btn.disabled = false; btn.textContent = '🔄 Aggiorna Ora';
+      handleRoute();
+    }
+
+    function pctOf(player, fn, grp) {
+      let pool = ALL_PLAYERS.filter(x => x.has_stats);
+      if (grp === 'ITA') pool = pool.filter(x => x.is_ita);
+      if (grp === 'NBA') pool = pool.filter(x => x.is_nba_prospect);
+      if (!pool.length) return 50;
+      const v = fn(player), vals = pool.map(fn);
+      const below = vals.filter(x => x < v).length, eq = vals.filter(x => x === v).length;
+      return Math.max(1, Math.min(99, Math.round(((below + 0.5 * eq) / pool.length) * 100)));
+    }
+
+    function renderLeaderboard() {
+      const q = document.getElementById('f-search').value.toLowerCase();
+      const grp = document.getElementById('f-group').value;
+      const pos = document.getElementById('f-pos').value;
+      const sort = document.getElementById('f-sort').value;
+      const minMpg = parseFloat(document.getElementById('f-mpg').value);
+      document.getElementById('mpg-lbl').textContent = minMpg;
+
+      const list = ALL_PLAYERS.filter(p => {
+        if (q && !p.name.toLowerCase().includes(q) && !p.team.toLowerCase().includes(q)) return false;
+        if (grp === 'ITA' && !p.is_ita) return false;
+        if (grp === 'NBA' && !p.is_nba_prospect) return false;
+        if (pos !== 'ALL' && !p.pos.includes(pos)) return false;
+        if (p.mpg < minMpg) return false;
+        return true;
+      }).sort((a, b) => {
+        if (sort === 'rank_nba') return (a.rank_nba || 999) - (b.rank_nba || 999);
+        if (a.has_stats !== b.has_stats) return b.has_stats - a.has_stats;
+        if (sort === 'ts_pct') return b.advanced.ts_pct - a.advanced.ts_pct;
+        return (b[sort] || 0) - (a[sort] || 0);
+      });
+
+      document.getElementById('leaderboard-body').inner
